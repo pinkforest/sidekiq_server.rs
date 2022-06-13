@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use sidekiq_server::{error_handler, panic_handler, printer_handler, retry_middleware, SidekiqServer};
 use structopt::StructOpt;
 
@@ -14,6 +16,8 @@ struct Params {
     queues: Vec<String>,
     #[structopt(short = "t", long = "timeout", help = "the timeout when force terminated", default_value = "10")]
     timeout: usize,
+    #[structopt(short = "e", long = "restart", help = "how often workers are restarted, in seconds", default_value = "10")]
+    restart_every: usize,
 }
 
 fn main() {
@@ -43,6 +47,7 @@ fn main() {
 
     server.namespace = params.namespace;
     server.force_quite_timeout = params.timeout;
+    server.restart_workers_every = Duration::from_secs(params.restart_every as u64);
     start(server)
 }
 

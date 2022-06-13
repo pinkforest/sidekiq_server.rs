@@ -51,6 +51,7 @@ pub struct SidekiqServer<'a> {
     worker_info: BTreeMap<String, bool>, // busy?
     concurrency: usize,
     pub force_quite_timeout: usize,
+    pub restart_workers_every: Duration,
 }
 
 impl<'a> SidekiqServer<'a> {
@@ -78,6 +79,7 @@ impl<'a> SidekiqServer<'a> {
             concurrency,
             signal_chan,
             force_quite_timeout: 10,
+            restart_workers_every: Duration::from_secs(60 * 60),
             middlewares: vec![],
             rs: String::from_utf8_lossy(&identity).to_string(),
         })
@@ -112,7 +114,8 @@ impl<'a> SidekiqServer<'a> {
 
         // controller loop
         let (tox2, rsx2) = (tox.clone(), rsx.clone()); // rename channels b/c `select!` will rename them below
-        let clock = tick(Duration::from_secs(2)); // report to sidekiq every 5 secs
+        let report_clock = tick(Duration::from_secs(2));
+        let restart_clock = tick(self.restart_workers_every);
         loop {
             if let Err(e) = self.report_alive() {
                 error!("report alive failed: '{}'", e);
@@ -134,9 +137,13 @@ impl<'a> SidekiqServer<'a> {
                         Err(_) => { unimplemented!() }
                     }
                 },
-                recv(clock) -> _ => {
-                    debug!("server clock triggered");
+                recv(report_clock) -> _ => {
+                    // TODO: report status to Sidekiq
                 },
+                recv(restart_clock) -> _ => {
+                    debug!("restarting worker threads");
+                    self.inform_termination(tox.clone());
+                }
                 recv(rsx) -> sig => {
                     debug!("received signal {:?}", sig);
                     if let Ok(Err(e)) = sig.map(|s| self.deal_signal(s)) {
